@@ -41,20 +41,22 @@ def setup_sockets():
 def producer_worker(producer, proAddr):
     global heap, is_running
     logging.info(f"[PRODUCER] Producer connected from {proAddr}")
-
+    buffer = []
     while True:
         # wait for request from consumer
-        task = producer.recv(1024).decode().strip().split('\n')[0].split(' ')
-        if task[0] == '[CLOSE]':
+        buffer = producer.recv(1024).decode().strip().split('\n')
+
+        if buffer[0] == '[CLOSE]':
             producer.close()
             logging.info("[PRODUCER] disconnected")
             break
         try:
             # Ensure concurrent safety when multiple threads access the heap
-            with heap_lock:
-                print(task)
-                heapq.heappush(heap, task)
-            logging.info(f"[CREATE] {task[0]} {task[1]} {task[2]}")
+            for task in buffer:
+                with heap_lock:
+                    task = task.split()
+                    heapq.heappush(heap, task)
+                logging.info(f"[CREATE] {task[0]} {task[1]} {task[2]}")
         except Exception:
             pass
         
@@ -82,7 +84,8 @@ def consumer_worker(consumer, conAddr):
 
         elif request == '[CLOSE]':
             consumer.close()
-            logging.info("[CONSUMER{counter}] disconnected")
+            logging.info(f"[CONSUMER] consumer{counter} is disconnected - ({counter} workers online)")
+            counter -= 1
             break
 
 def shutdown():
@@ -109,7 +112,7 @@ if __name__ == '__main__':
                 if consumer is not None:
                     consumer_thread = Thread(target=consumer_worker, args=(consumer, conAddr), daemon=True)
                     counter += 1
-                    logging.info(f"[SERVER] consumer{counter} online")
+                    logging.info(f"[SERVER] {counter} online")
                     consumer_thread.start()
             except socket.timeout:
                 pass
@@ -122,7 +125,7 @@ if __name__ == '__main__':
                 producer, proAddr = producer_listener.accept()
                 if producer is not None:
                     producer_thread = Thread(target=producer_worker, args=(producer, proAddr), daemon=True)
-                    logging.info("[SERVER] New producer online")
+                    logging.info("[PRODUCER] New producer online")
                     producer_thread.start()
             except socket.timeout:
                 pass
@@ -133,4 +136,4 @@ if __name__ == '__main__':
             time.sleep(0.05)
     except KeyboardInterrupt:
         shutdown()
-        logging.info("[SERVER] server is shutting down...")
+        logging.info("[SERVER] shutting down...")
